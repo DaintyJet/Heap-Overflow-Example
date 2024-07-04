@@ -20,11 +20,11 @@ Other strategies that exist, but do not appear to be used in the Windows Heap al
 ### Heap Chunks
 A Heap chunk consists of a header containing metadata used in the heap to provide information about the free memory chunk it is associated with, and the block of freed memory itself. It is possible, that by overflowing into adjacent chunks that we can modify or leak the data stored within! Once this is done we can gain information about the process to use in later exploitations, such as shown in the writeup [1] where you can extract the `vftable` address to get the image's base address so we can access other datastructures more easily!  
 
-Below is an example Heap Chunk header from [5]: 
+Below is an example Heap Bin Header used in a Low Fragmentation Heap from [5]: 
 
 <img src="Images/I1.png" width=600>
 
-Now we can see what the Heap structure look like in Windows:
+Now we can also examine what the Heap Chunk Structure look like in Windows (This is a Doubly Linked List):
 
 ![Heap Windows](Images/FHeap.png)
 
