@@ -1,5 +1,6 @@
 # Heap Overflow in Windows 10
-*Notice*: The three heap overflow related exploits preformed in this document are created based on this article [[1]](https://www.rapid7.com/blog/post/2019/06/12/heap-overflow-exploitation-on-windows-10-explained/).
+> [!NOTE] 
+> The three heap overflow related exploits performed on example code in this document are created based on this article [[1]](https://www.rapid7.com/blog/post/2019/06/12/heap-overflow-exploitation-on-windows-10-explained/).
 ___
 
 
