@@ -1,4 +1,4 @@
-# Heap Overflow in Windows 10
+# Heap Overflows in Windows
 > [!NOTE] 
 > The three heap overflow related exploits performed on example code in this document are created based on this article [[1]](https://www.rapid7.com/blog/post/2019/06/12/heap-overflow-exploitation-on-windows-10-explained/).
 ___
@@ -935,6 +935,9 @@ Now we can start observing the malicious program as it executes!
 > 	VirtualProtect(SHELL, sizeof(SHELL), PAGE_EXECUTE_READWRITE, &oldProtect);
 > ```
 > * With this we modify the region the shellcode is located in as executable
+
+## VChat Exploitation
+We explore the exploitation of additional functions provided in the VChat server in the [VChat_Heap_Exploit](https://github.com/DaintyJet/VChat_Heap_Exploit) writeup, and the effects of the Windows Defenses in the [VChat_Heap_Defense](https://github.com/DaintyJet/VChat_Heap_Defense) writeup.
 
 # Test code
 - The following code can be compiled with Visual Studio 2019. You can use the a VS 2019 project created in this [directory](./SourceCode/VS2019Project) and copy the code from the following .cpp file to [heap_main.cpp](SourceCode/VS2019Project/heap_main.cpp).
